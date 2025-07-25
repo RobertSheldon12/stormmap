@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Storm Chaser Map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; }
+    #map { height: 100%; width: 100%; }
+    .leaflet-control { background: white; padding: 6px; border-radius: 4px; }
+    .popup-video { width: 320px; height: 180px; }
+    .controls { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 1000; }
+    .controls button { margin: 0 4px; padding: 6px 12px; font-size: 14px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="controls">
+    <button id="playPause">Pause</button>
+    <button id="stepBack">⟵</button>
+    <button id="stepForward">⟶</button>
+  </div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet-rotatedmarker/leaflet.rotatedMarker.js"></script>
+  <script>
+    const map = L.map('map').setView([27, -80], 6); // Florida center
+
+    // Basemap
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    // Radar Layers (RainViewer)
+    let radarFrames = [];
+    let currentFrame = 0;
+    let playing = true;
+    let radarLayers = [];
+
+    async function loadRadar() {
+      const res = await fetch('https://api.rainviewer.com/public/weather-maps.json');
+      const data = await res.json();
+      radarFrames = data.radar.past.slice(-6); // last ~1 hour (6 frames)
+      addRadarFrames();
+    }
+
+    function addRadarFrames() {
+      radarLayers.forEach(l => map.removeLayer(l));
+      radarLayers = radarFrames.map(frame =>
+        L.tileLayer(`https://tilecache.rainviewer.com${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, {
+          opacity: 0.0,
+          zIndex: 400
+        }).addTo(map)
+      );
+      showFrame(radarLayers.length - 1);
+    }
+
+    function showFrame(index) {
+      radarLayers.forEach((layer, i) => {
+        layer.setOpacity(i === index ? 0.7 : 0);
+      });
+      currentFrame = index;
+    }
+
+    function nextFrame() {
+      let i = (currentFrame + 1) % radarLayers.length;
+      showFrame(i);
+    }
+
+    let radarInterval = setInterval(() => {
+      if (playing) nextFrame();
+    }, 800);
+
+    // Webcam Layer (Windy + curated)
+    const webcamIcon = L.icon({
+      iconUrl: 'https://cdn-icons-png.flaticon.com/512/1048/1048953.png',
+      iconSize: [30, 30]
+    });
+
+    async function loadWebcams() {
+      const res = await fetch('https://api.windy.com/api/webcams/v2/list?show=webcams&key=demo'); 
+      // Demo key; for production you'd need your own
+      const cams = (await res.json()).result.webcams;
+
+      cams.forEach(cam => {
+        if (!cam.location || !cam.location.latitude || !cam.location.longitude) return;
+        // Filter for coastal/beach cams
+        if (!/beach|coast|surf|ocean|bay/i.test(cam.title)) return;
+        const marker = L.marker([cam.location.latitude, cam.location.longitude], { icon: webcamIcon });
+        let popupContent = `<strong>${cam.title}</strong><br>`;
+        if (cam.player && cam.player.lifetime.embed) {
+          popupContent += `<iframe class="popup-video" src="${cam.player.lifetime.embed}" frameborder="0" allowfullscreen></iframe>`;
+        } else {
+          popupContent += `<a href="${cam.player.lifetime.link}" target="_blank">Watch Live</a>`;
+        }
+        marker.bindPopup(popupContent);
+        marker.addTo(map);
+      });
+
+      // Add some curated YouTube/surf cams
+      const curatedCams = [
+        { name: "Key West Beach", lat: 24.555, lon: -81.78, url: "https://www.youtube.com/embed/live_stream?channel=UCBxH3PChI" },
+        { name: "Clearwater Beach", lat: 27.977, lon: -82.827, url: "https://www.youtube.com/embed/live_stream?channel=UCgYpbw4" },
+      ];
+      curatedCams.forEach(c => {
+        const marker = L.marker([c.lat, c.lon], { icon: webcamIcon });
+        marker.bindPopup(`<strong>${c.name}</strong><br><iframe class="popup-video" src="${c.url}" frameborder="0" allowfullscreen></iframe>`);
+        marker.addTo(map);
+      });
+    }
+
+    // Controls
+    document.getElementById('playPause').addEventListener('click', () => {
+      playing = !playing;
+      document.getElementById('playPause').innerText = playing ? 'Pause' : 'Play';
+    });
+
+    document.getElementById('stepBack').addEventListener('click', () => {
+      showFrame((currentFrame - 1 + radarLayers.length) % radarLayers.length);
+    });
+    document.getElementById('stepForward').addEventListener('click', () => {
+      showFrame((currentFrame + 1) % radarLayers.length);
+    });
+
+    // Auto-refresh every 5 minutes
+    setInterval(() => {
+      loadRadar();
+      loadWebcams();
+    }, 300000);
+
+    // Initial load
+    loadRadar();
+    loadWebcams();
+  </script>
+</body>
+</html>
