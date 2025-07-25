@@ -1,199 +1,106 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Storm Map with Live Beach Cams</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Storm Map with Radar + Live Cams</title>
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-sA+e2q4zQz38k0Z6kYoPr2ey1DmBp3p10+F3uD+ZfGk="
+  crossorigin=""
+/>
 <style>
-  html, body, #map {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-  }
-  #toggleRadar {
+  body, html { margin: 0; padding: 0; height: 100%; }
+  #map { width: 100%; height: 100vh; }
+  #toggleRadarBtn {
     position: absolute;
-    top: 10px;
-    left: 50%;
+    top: 10px; left: 50%;
     transform: translateX(-50%);
     z-index: 1000;
     background: white;
     padding: 8px 12px;
+    border: 1px solid #666;
     border-radius: 4px;
-    font-family: Arial, sans-serif;
     cursor: pointer;
+    font-weight: bold;
     box-shadow: 0 0 5px rgba(0,0,0,0.3);
   }
-  #timestamp {
-    position: absolute;
-    bottom: 10px;
-    right: 10px;
-    font-family: Arial, sans-serif;
-    background: rgba(255,255,255,0.8);
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 12px;
-    z-index: 1000;
-  }
 </style>
-
-<!-- Leaflet CSS -->
-<link
-  rel="stylesheet"
-  href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-  integrity="sha256-sA+3+YvhfNPj6ffHzqGZtpQ+tpJCk9zHe0DmT4l6L3I="
-  crossorigin=""
-/>
-
 </head>
 <body>
 
+<div id="toggleRadarBtn">Toggle Radar</div>
 <div id="map"></div>
-<button id="toggleRadar">Toggle Radar</button>
-<div id="timestamp"></div>
 
-<!-- Leaflet JS -->
 <script
   src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-  integrity="sha256-oC0J4jUyOFm7Dxk1kz3Q7t7IjNP1CyFvV/g0L/tpMMc="
+  integrity="sha256-o9N1j7Y0vF3fZ8QtQTlJSow0RdU+Rs0rbDx+FfMWo0M="
   crossorigin=""
 ></script>
-
 <script>
-// Map initialization
-const map = L.map('map').setView([28, -85], 5);
+  // Initialize map
+  const map = L.map('map').setView([28.5, -82.5], 6); // Center on Florida / US South Coast
 
-// Base tile layer (OpenStreetMap)
-const baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 18,
-  attribution: '© OpenStreetMap contributors'
-}).addTo(map);
+  // Base tile layer
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
 
-// Radar overlay layer (using RainViewer tiles)
-let radarLayer = L.tileLayer('https://tilecache.rainviewer.com/v2/radar/0/0/0/0/0/0/0.png', {
-  opacity: 0.5,
-  zIndex: 500
-});
-
-// Radar tile URL template updated dynamically every refresh
-let radarTileLayer = null;
-
-// Camera pin colors by region
-const regionColors = {
-  florida: 'blue',
-  gulf: 'green',
-  atlantic: 'orange',
-  caribbean: 'purple'
-};
-
-// Camera data (40+ verified live cams: location, region, name, url)
-const cameras = [
-  // Florida
-  {lat: 25.7751, lon: -80.2105, region: 'florida', name: 'Miami Beach Cam', url: 'https://miamibeachcam.com/'},
-  {lat: 24.5551, lon: -81.7800, region: 'florida', name: 'Key West Cam', url: 'https://floridakeyswebcams.tv/key-west-cam/'},
-  {lat: 27.6648, lon: -82.5748, region: 'florida', name: 'Clearwater Beach Cam', url: 'https://www.seasidehightide.com/webcam/'},
-  {lat: 26.7153, lon: -80.0534, region: 'florida', name: 'Fort Lauderdale Beach Cam', url: 'https://www.fortlauderdalebeachcams.com/'},
-  {lat: 28.5383, lon: -81.3792, region: 'florida', name: 'Orlando Beach Cam (Coast Nearby)', url: 'https://www.ocalabeachcam.com/'},
-
-  // Gulf Coast
-  {lat: 29.9511, lon: -90.0715, region: 'gulf', name: 'New Orleans Gulf Cam', url: 'https://neworleanswebcam.net/'},
-  {lat: 30.3322, lon: -81.6557, region: 'gulf', name: 'Jacksonville Beach Cam', url: 'https://jacksonvillebeachcam.com/'},
-  {lat: 29.4241, lon: -98.4936, region: 'gulf', name: 'Corpus Christi Beach Cam', url: 'https://www.cctexas.com/webcams'},
-  {lat: 30.2672, lon: -97.7431, region: 'gulf', name: 'Galveston Beach Cam', url: 'https://www.galveston.com/webcam/'},
-  {lat: 27.9642, lon: -82.4526, region: 'gulf', name: 'Tampa Beach Cam', url: 'https://www.tampabaybeachcams.com/'},
-
-  // Atlantic Coast
-  {lat: 36.8508, lon: -76.2859, region: 'atlantic', name: 'Virginia Beach Cam', url: 'https://www.virginiabeachcam.com/'},
-  {lat: 40.7128, lon: -74.0060, region: 'atlantic', name: 'New York Beach Cam', url: 'https://www.nybeachcam.com/'},
-  {lat: 39.9526, lon: -75.1652, region: 'atlantic', name: 'Philadelphia Shore Cam', url: 'https://www.phillybeachcams.com/'},
-  {lat: 38.9072, lon: -77.0369, region: 'atlantic', name: 'Washington D.C. Coastal Cam', url: 'https://washingtoncoastcam.com/'},
-  {lat: 35.2271, lon: -80.8431, region: 'atlantic', name: 'Charlotte Beach Cam', url: 'https://charlottebeachcam.com/'},
-
-  // Caribbean
-  {lat: 18.2206, lon: -66.5901, region: 'caribbean', name: 'San Juan Beach Cam', url: 'https://www.sanjuanbeachcam.com/'},
-  {lat: 18.3358, lon: -64.8963, region: 'caribbean', name: 'St. Thomas Beach Cam', url: 'https://www.stthomasbeachcam.com/'},
-  {lat: 20.7090, lon: -156.2530, region: 'caribbean', name: 'Maui Beach Cam', url: 'https://www.mauibeachcam.com/'},
-  {lat: 18.4861, lon: -69.9312, region: 'caribbean', name: 'Punta Cana Cam', url: 'https://www.puntacanacam.com/'},
-  {lat: 21.1619, lon: -86.8515, region: 'caribbean', name: 'Cancun Beach Cam', url: 'https://www.cancunbeachcam.com/'},
-
-  // Add more cams here as needed...
-];
-
-// Create colored markers function
-function createMarker(lat, lon, color, name, url) {
-  const icon = L.circleMarker([lat, lon], {
-    radius: 8,
-    fillColor: color,
-    color: '#000',
-    weight: 1,
-    opacity: 1,
-    fillOpacity: 0.8
+  // Radar overlay from OpenWeatherMap (Free Demo)
+  const radarLayer = L.tileLayer('https://tile.openweathermap.org/map/precipitation_new/{z}/{x}/{y}.png?appid=b6907d289e10d714a6e88b30761fae22', {
+    opacity: 0.5,
+    attribution: '&copy; OpenWeatherMap'
   });
-  icon.on('click', () => window.open(url, '_blank'));
-  icon.bindTooltip(name, {direction: 'top', offset: [0, -10], opacity: 0.9});
-  icon.addTo(map);
-  return icon;
-}
 
-// Load cameras on the map
-function loadCameras() {
-  cameras.forEach(cam => {
-    createMarker(cam.lat, cam.lon, regionColors[cam.region] || 'gray', cam.name, cam.url);
-  });
-}
+  let radarVisible = false;
 
-// Radar tiles handling (using RainViewer API)
-// We'll get the latest radar timestamp and load tiles accordingly
-let radarTile;
-async function loadRadar() {
-  try {
-    // Get radar data metadata JSON
-    const response = await fetch('https://api.rainviewer.com/public/maps.json');
-    const data = await response.json();
-    const radarData = data.radar[0]; // latest radar
-
-    const time = radarData.time;
-    const tileUrl = `https://tilecache.rainviewer.com/v2/radar/${time}/256/{z}/{x}/{y}/2/1_1.png`;
-
-    // Remove old radar layer if exists
-    if (radarTile) {
-      map.removeLayer(radarTile);
+  document.getElementById('toggleRadarBtn').addEventListener('click', () => {
+    if (radarVisible) {
+      map.removeLayer(radarLayer);
+      radarVisible = false;
+    } else {
+      map.addLayer(radarLayer);
+      radarVisible = true;
     }
-    radarTile = L.tileLayer(tileUrl, {opacity: 0.5, zIndex: 500});
-    radarTile.addTo(map);
+  });
 
-    // Update timestamp text
-    const ts = new Date(time * 1000);
-    document.getElementById('timestamp').textContent = `Last Refresh: ${ts.toLocaleString()}`;
+  // Camera pins data: Replace or add your live cams here with [lat, lon, url, color]
+  const cams = [
+    // Florida Keys (red)
+    [24.5551, -81.7800, 'https://floridakeyswebcams.tv/key-west-cam/', 'red'],
+    [25.0111, -80.3578, 'https://www.keywestlivecam.com/', 'red'],
 
-  } catch (err) {
-    console.error('Radar load error:', err);
-    document.getElementById('timestamp').textContent = 'Last Refresh: Failed to load radar';
-  }
-}
+    // US South Coast (orange)
+    [30.3322, -81.6557, 'https://www.jacksonville.com/live-beach-cam', 'orange'],
+    [29.9511, -90.0715, 'https://www.nola.com/weather/live-beach-cam/', 'orange'],
 
-// Toggle radar visibility
-const toggleRadarBtn = document.getElementById('toggleRadar');
-toggleRadarBtn.addEventListener('click', () => {
-  if (radarTile && map.hasLayer(radarTile)) {
-    map.removeLayer(radarTile);
-  } else if (radarTile) {
-    radarTile.addTo(map);
-  }
-});
+    // Atlantic Coast up to NJ (blue)
+    [40.7128, -74.0060, 'https://www.nycgovparks.org/parks/riis-beach/webcams', 'blue'],
+    [39.2904, -74.6090, 'https://www.capemay.com/webcam', 'blue'],
 
-// Initial load
-loadCameras();
-loadRadar();
+    // Caribbean Islands (green)
+    [18.2206, -66.5901, 'https://www.prtourism.com/webcams', 'green'],
+    [19.3380, -81.2546, 'https://www.grandcayman.com/webcam', 'green']
+  ];
 
-// Auto-refresh every 5 minutes (300000 ms)
-setInterval(() => {
-  // Clear all camera markers before reload to avoid duplicates
-  // For simplicity here, we reload the page to reset markers & radar:
-  // but we want to keep zoom, so reload map layers only
-  // Since markers are static, just reload radar and timestamp
-  loadRadar();
-  // Timestamp updates inside loadRadar()
-}, 300000);
+  cams.forEach(([lat, lon, url, color]) => {
+    const marker = L.circleMarker([lat, lon], {
+      radius: 8,
+      fillColor: color,
+      color: '#000',
+      weight: 1,
+      opacity: 1,
+      fillOpacity: 0.8,
+      cursor: 'pointer'
+    }).addTo(map);
+
+    marker.on('click', () => {
+      window.open(url, '_blank', 'noopener');
+    });
+
+    marker.bindTooltip(url, { direction: 'top', offset: [0, -10], opacity: 0.7 });
+  });
 
 </script>
 
